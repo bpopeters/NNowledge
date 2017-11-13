@@ -56,6 +56,9 @@ class Vocab(object):
         self._str2index = {word: i for i, word in enumerate(self._index2str)}
         assert len(self._index2str) == len(self._str2index)
 
+    def __len__(self):
+        return len(self._index2str)
+
     def string2tensor(self, data):
         """
         data: a list of lists of strings
