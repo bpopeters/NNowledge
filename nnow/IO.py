@@ -71,9 +71,10 @@ class Vocab(object):
         i = torch.LongTensor(list(coordinates(data))).t()
         return torch.sparse.LongTensor(
             i, v, torch.Size([n_samples, max_len])
-        ).to_dense().unsqueeze(2)  # do I need to do the to_dense() here?
+        ).to_dense()
 
     def tensor2string(self, tensor):
+        # probably a dimension problem in here
         return [list(
                 takewhile(lambda w: w != PAD,
                           (self._index2str[i] for i in line.squeeze()))
