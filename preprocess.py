@@ -13,10 +13,10 @@ from nnow.IO import Dataset, Vocab, tokenize
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-train_src', required=True, type=tokenize)
-    parser.add_argument('-train_tgt', required=True, type=tokenize)
-    parser.add_argument('-valid_src', required=True, type=tokenize)
-    parser.add_argument('-valid_tgt', required=True, type=tokenize)
+    parser.add_argument('-train_src', default='train.src', type=tokenize)
+    parser.add_argument('-train_tgt', default='train.tgt', type=tokenize)
+    parser.add_argument('-valid_src', default='valid.src', type=tokenize)
+    parser.add_argument('-valid_tgt', default='valid.tgt', type=tokenize)
     parser.add_argument('-out', default="")
     opt = parser.parse_args()
 
