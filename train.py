@@ -6,6 +6,7 @@ import torch.optim as optim
 from torch.autograd import Variable
 import torch.nn as nn
 from nnow.Model import Encoder, Decoder, Seq2Seq, LogSoftmaxOutput
+from nnow.RNN import RNN
 
 
 def train_epoch(model, optimizer, criterion, batches):
@@ -32,6 +33,7 @@ def main():
     parser.add_argument('-layers', type=int, default=2)
     parser.add_argument('-dropout', type=float, default=0.3)
     parser.add_argument('-epochs', type=int, default=10)
+    parser.add_argument('-rnn_type', default='LSTM', choices=['LSTM', 'GRU'])
     opt = parser.parse_args()
 
     src_emb = nn.Embedding(
@@ -40,17 +42,19 @@ def main():
     tgt_emb = nn.Embedding(
         len(opt.train.tgt_vocab), opt.word_vec_size, padding_idx=0
     )
-    enc_rnn = nn.LSTM(
+
+    enc_rnn = RNN(
+        opt.rnn_type, bidirectional=opt.brnn, num_layers=opt.layers,
         input_size=opt.word_vec_size, hidden_size=opt.hidden_size,
-        bidirectional=opt.brnn, num_layers=opt.layers, batch_first=True,
-        dropout=opt.dropout
+        batch_first=True, dropout=opt.dropout
     )
 
-    dec_rnn = nn.LSTM(
+    dec_rnn = RNN(
+        opt.rnn_type, bidirectional=False, num_layers=opt.layers,
         input_size=opt.word_vec_size, hidden_size=opt.hidden_size,
-        bidirectional=False, num_layers=opt.layers, batch_first=True,
-        dropout=opt.dropout
+        batch_first=True, dropout=opt.dropout
     )
+
     output_layer = LogSoftmaxOutput(
         dec_rnn.hidden_size, len(opt.train.tgt_vocab)
     )
