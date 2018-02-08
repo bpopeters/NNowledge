@@ -1,6 +1,6 @@
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 
 class Encoder(nn.Module):
     def __init__(self, embeddings, rnn):
@@ -11,7 +11,9 @@ class Encoder(nn.Module):
 
     def forward(self, input, hidden_0=None):
         """
-        
+        input (LongTensor): batch x src length
+        hidden_0:
+        returns:
         """
         emb = self.embeddings(input)
         output, hidden_n = self.rnn(emb, hidden_0)
@@ -26,23 +28,26 @@ class Decoder(nn.Module):
         self.rnn = rnn
         self.output_layer = output_layer
 
-    def forward(self, input, hidden_0=None):
+    def forward(self, input, context, hidden_0):
         """
-        
+        input (LongTensor): batch x tgt length
+        context (FloatTensor): batch x src length x hidden size
         """
         emb = self.embeddings(input)
         output, hidden_n = self.rnn(emb, hidden_0)
-        return self.output_layer(output.contiguous().view(-1, self.rnn.hidden_size))
+
+        flat_output = output.contiguous().view(-1, self.rnn.hidden_size)
+        return self.output_layer(flat_output)
 
 
-class SoftmaxOutput(nn.Module):
+class LogSoftmaxOutput(nn.Module):
     def __init__(self, hidden_size, vocab_size):
-        super(SoftmaxOutput, self).__init__()
+        super(LogSoftmaxOutput, self).__init__()
         self.affine = nn.Linear(hidden_size, vocab_size)
 
     def forward(self, hidden_layer):
-        return F.softmax(self.affine(hidden_layer))
-        
+        return F.log_softmax(self.affine(hidden_layer))
+
 
 class Seq2Seq(nn.Module):
     def __init__(self, encoder, decoder):
@@ -56,5 +61,5 @@ class Seq2Seq(nn.Module):
         returns
         """
         tgt = tgt[:, :-1]  # this causes problems when tgt length is 1
-        enc_out, enc_hidden = self.encoder(src)
-        return self.decoder(tgt, enc_hidden)
+        context, enc_hidden = self.encoder(src)
+        return self.decoder(tgt, context, enc_hidden)
