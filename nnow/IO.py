@@ -74,7 +74,6 @@ class Vocab(object):
         ).to_dense()
 
     def tensor2string(self, tensor):
-        # probably a dimension problem in here
         return [list(
                 takewhile(lambda w: w != PAD,
                           (self._index2str[i] for i in line.squeeze()))
