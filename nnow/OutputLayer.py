@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class LogSoftmaxOutput(nn.Module):
     def __init__(self, hidden_size, vocab_size):
         super(LogSoftmaxOutput, self).__init__()
