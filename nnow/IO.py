@@ -18,12 +18,6 @@ def tokenize(filename):
         return [line.strip().split() for line in f]
 
 
-def coordinates(samples):
-    for i, sample in enumerate(samples):
-        for j in range(len(sample)):
-            yield [i, j]
-
-
 def batchify(lines, batch_size):
     """
     cf. https://docs.python.org/3/library/itertools.html#itertools-recipes
@@ -37,8 +31,8 @@ def batchify(lines, batch_size):
 class Vocab(object):
     """
     A vocabulary: hand it a tokenized corpus, it will maintain the types
-    that occur in it, possibly with a limit for max vocab size or min
-    number of occurrences.
+    that occur in it. It includes methods for turning sequences of tokens
+    into tensors and vice versa.
     """
     def __init__(self, corpus, meta=(PAD, BOS, EOS, UNK),
                  vocab_size=None, min_count=1):
@@ -59,19 +53,23 @@ class Vocab(object):
     def __len__(self):
         return len(self._index2str)
 
-    def string2tensor(self, data):
+    def _string2tensor(self, tokens, padded_length):
+        tok_with_meta = [BOS] + tokens + [EOS]
+        tok_with_meta.extend([PAD] * (padded_length - len(tok_with_meta)))
+        return torch.LongTensor(
+            [self._str2index.get(tok, self._str2index[UNK])
+             for tok in tok_with_meta]
+        ).unsqueeze(0)
+
+    def string2tensor(self, sequences):
         """
-        data: a list of lists of strings
-        returns a LongTensor (n_samples x max_len x 1)
+        sequences: a lits of lists of strings
+        returns: LongTensor (n_samples x max_len)
         """
-        max_len = max(len(sample) for sample in data)
-        n_samples = len(data)
-        v = torch.LongTensor([self._str2index.get(tok, self._str2index[UNK])
-                              for tok in chain(*data)])
-        i = torch.LongTensor(list(coordinates(data))).t()
-        return torch.sparse.LongTensor(
-            i, v, torch.Size([n_samples, max_len])
-        ).to_dense()
+        max_len = max(len(sample) for sample in sequences) + 2  # for BOS/EOS
+        return torch.cat(
+            [self._string2tensor(seq, max_len) for seq in sequences]
+        )
 
     def tensor2string(self, tensor):
         return [list(
@@ -90,9 +88,9 @@ class Dataset(object):
         self.src_vocab = src_vocab
         self.tgt_vocab = tgt_vocab
 
-    def batches(self, size):
-        src_batches = batchify(self.src, size)
-        tgt_batches = batchify(self.tgt, size)
+    def batches(self, batch_size):
+        src_batches = batchify(self.src, batch_size)
+        tgt_batches = batchify(self.tgt, batch_size)
         for sb, tb in zip(src_batches, tgt_batches):
             yield (self.src_vocab.string2tensor(sb),
                    self.tgt_vocab.string2tensor(tb))
