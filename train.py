@@ -12,10 +12,12 @@ from nnow.RNN import RNN
 from nnow.Attention import Attention
 
 
-def train_batch(src, tgt, model, optimizer, criterion):
+def train_batch(batch, model, optimizer, criterion):
     """
     Do stuff, like report the size-averaged loss
     """
+    src = Variable(batch['src'])
+    tgt = Variable(batch['tgt'])
     optimizer.zero_grad()
     gold = tgt[:, 1:].contiguous().view(-1)
 
@@ -28,12 +30,12 @@ def train_batch(src, tgt, model, optimizer, criterion):
 
 def train_epoch(model, optimizer, criterion, batches, report_every):
     model.train()
-    for i, (src, tgt) in enumerate(batches, 1):
+    for i, batch in enumerate(batches, 1):
         optimizer.zero_grad()
-        loss = train_batch(
-            Variable(src), Variable(tgt), model, optimizer, criterion
-        )
+        loss = train_batch(batch, model, optimizer, criterion)
         if i % report_every == 0:
+            # note that this is not correct: it's the loss for only a
+            # single batch
             print('training ppl {}'.format(math.exp(loss)))
 
 
@@ -47,19 +49,23 @@ def validate_model(model, criterion, batches):
     model.eval()
     pred = []
     gold = []
-    for src, tgt in batches:
-        s, t = Variable(src), Variable(tgt)
+    for batch in batches:
+        src = Variable(batch['src'], volatile=True)
+        tgt = Variable(batch['tgt'], volatile=True)
 
-        pred.append(model(s, t))
-        gold.append(t[:, 1:].contiguous().view(-1))
+        pred.append(model(src, tgt))
+        gold.append(tgt[:, 1:].contiguous().view(-1))
     loss = criterion(torch.cat(pred), torch.cat(gold))
     return torch.exp(loss)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('train', type=torch.load)
-    parser.add_argument('valid', type=torch.load)
+    parser.add_argument('train_src')
+    parser.add_argument('train_tgt')
+    parser.add_argument('valid_src')
+    parser.add_argument('valid_tgt')
+    parser.add_argument('bitext', type=torch.load)
     parser.add_argument('-batch_size', type=int, default=64)
     parser.add_argument('-brnn', action='store_true')
     parser.add_argument('-word_vec_size', type=int, default=150)
@@ -75,10 +81,10 @@ def main():
 
     # make a sequence-to-sequence model:
     src_emb = nn.Embedding(
-        len(opt.train.src_vocab), opt.word_vec_size, padding_idx=0
+        len(opt.bitext.src_vocab), opt.word_vec_size, padding_idx=0
     )
     tgt_emb = nn.Embedding(
-        len(opt.train.tgt_vocab), opt.word_vec_size, padding_idx=0
+        len(opt.bitext.tgt_vocab), opt.word_vec_size, padding_idx=0
     )
 
     enc_rnn = RNN(
@@ -96,7 +102,7 @@ def main():
     )
 
     output_layer = LogSoftmaxOutput(
-        dec_rnn.hidden_size, len(opt.train.tgt_vocab)
+        dec_rnn.hidden_size, len(opt.bitext.tgt_vocab)
     )
 
     encoder = Encoder(src_emb, enc_rnn)
@@ -110,8 +116,12 @@ def main():
     # train and validate
     for i in range(1, opt.epochs + 1):
         print('Training epoch {}'.format(i))
-        train_batches = opt.train.batches(opt.batch_size)
-        valid_batches = opt.valid.batches(opt.batch_size)
+        train_batches = opt.bitext.batches(
+            opt.train_src, opt.train_tgt, opt.batch_size
+        )
+        valid_batches = opt.bitext.batches(
+            opt.valid_src, opt.valid_tgt, opt.batch_size
+        )
         train_epoch(model, optimizer, criterion, train_batches, opt.report_ppl)
         print(validate_model(model, criterion, valid_batches))
 

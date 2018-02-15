@@ -8,14 +8,17 @@ UNK = '<unk>'
 PAD = '<blank>'
 
 
-def tokenize(filename):
+def tokenize(filename, lowercase=True):
     """
     filename: location of a src or tgt file
     returns: one or several sequences, where each returned sequence is the
              same length. Each element of the sequence
     """
     with open(filename) as f:
-        return [line.strip().split() for line in f]
+        for line in f:
+            if lowercase:
+                line = line.lower()
+            yield line.strip().split()
 
 
 def batchify(lines, batch_size):
@@ -51,6 +54,9 @@ class Vocab(object):
         assert len(self._index2str) == len(self._str2index)
 
     def __len__(self):
+        """
+        The vocab size
+        """
         return len(self._index2str)
 
     def _string2tensor(self, tokens, padded_length):
@@ -79,18 +85,33 @@ class Vocab(object):
                 for line in tensor.split(1)]
 
 
-class Dataset(object):
-    def __init__(self, src, tgt, src_vocab, tgt_vocab):
-        assert len(src) == len(tgt)
-
-        self.src = src
-        self.tgt = tgt
+class BitextIterator(object):
+    def __init__(self, src_vocab, tgt_vocab):
         self.src_vocab = src_vocab
         self.tgt_vocab = tgt_vocab
 
-    def batches(self, batch_size):
-        src_batches = batchify(self.src, batch_size)
-        tgt_batches = batchify(self.tgt, batch_size)
-        for sb, tb in zip(src_batches, tgt_batches):
-            yield (self.src_vocab.string2tensor(sb),
-                   self.tgt_vocab.string2tensor(tb))
+    def batches(self, src, tgt, batch_size):
+        """
+        src, tgt: paths to source and target files
+        yields:
+        """
+        tokenized_src = tokenize(src)
+        tokenized_tgt = tokenize(tgt)
+        src_batches = batchify(tokenized_src, batch_size)
+        tgt_batches = batchify(tokenized_tgt, batch_size)
+        for src_batch, tgt_batch in zip(src_batches, tgt_batches):
+            order, sorted_src = zip(*sorted(enumerate(src_batch),
+                                            key=lambda x: len(x[1]),
+                                            reverse=True))
+            sorted_tgt = tuple(tgt_batch[i] for i in order)
+
+            # BOS/EOS things aren't added until the batches are turned
+            # into tensors, so it's necessary to add 2 to each length
+            # to account for this
+            src_lengths = [2 + len(sample) for sample in sorted_src]
+            tgt_lengths = [2 + len(sample) for sample in sorted_tgt]
+
+            src_tensor = self.src_vocab.string2tensor(sorted_src)
+            tgt_tensor = self.tgt_vocab.string2tensor(sorted_tgt)
+            yield {'src': src_tensor, 'src_lengths': src_lengths,
+                   'tgt': tgt_tensor, 'tgt_lengths': tgt_lengths}
