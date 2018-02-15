@@ -21,7 +21,7 @@ def train_batch(batch, model, optimizer, criterion):
     optimizer.zero_grad()
     gold = tgt[:, 1:].contiguous().view(-1)
 
-    predicted = model(src, tgt)
+    predicted = model(src, tgt, src_lengths=batch.get('src_lengths', None))
     loss = criterion(predicted, gold)
     loss.backward()
     optimizer.step()
@@ -53,7 +53,7 @@ def validate_model(model, criterion, batches):
         src = Variable(batch['src'], volatile=True)
         tgt = Variable(batch['tgt'], volatile=True)
 
-        pred.append(model(src, tgt))
+        pred.append(model(src, tgt, batch.get('src_lengths', None)))
         gold.append(tgt[:, 1:].contiguous().view(-1))
     loss = criterion(torch.cat(pred), torch.cat(gold))
     return torch.exp(loss)

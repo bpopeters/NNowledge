@@ -8,14 +8,14 @@ class Encoder(nn.Module):
         self.embeddings = embeddings
         self.rnn = rnn
 
-    def forward(self, input, hidden=None):
+    def forward(self, input, src_lengths=None, hidden=None):
         """
         input (LongTensor): batch x src length
         hidden:
         returns:
         """
         emb = self.embeddings(input)
-        output, hidden_n = self.rnn(emb, hidden)
+        output, hidden_n = self.rnn(emb, lengths=src_lengths, hidden=hidden)
         return output, hidden_n
 
 
@@ -45,11 +45,11 @@ class Seq2Seq(nn.Module):
         self.encoder = encoder
         self.decoder = decoder
 
-    def forward(self, src, tgt):
+    def forward(self, src, tgt, src_lengths=None):
         """
         src, tgt: Variable(LongTensor) (batch size x sequence length)
         returns
         """
-        tgt = tgt[:, :-1]  # this causes problems when tgt length is 1
-        context, enc_hidden = self.encoder(src)
+        tgt = tgt[:, :-1]
+        context, enc_hidden = self.encoder(src, src_lengths=src_lengths)
         return self.decoder(tgt, context=context, hidden=enc_hidden)

@@ -5,11 +5,12 @@ can potentially arise when pairing a bidirectional encoder with a
 unidirectional decoder. They also allow for the models to make use of
 attention.
 
-TODO: stacked RNNs, sequence packing.
+TODO: stacked RNNs.
 """
 
 import torch
 import torch.nn as nn
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
 class RNN(nn.Module):
@@ -34,12 +35,16 @@ class RNN(nn.Module):
         )
         self.attn = attn
 
-    def forward(self, input, context=None, hidden=None):
+    def forward(self, input, lengths=None, context=None, hidden=None):
         """
         input: batch x sequence length x hidden size
         context: batch x source sequence length x hidden size
         """
+        if lengths:
+            input = pack_padded_sequence(input, lengths, batch_first=True)
         output, hidden_n = self.rnn(input, hidden)
+        if lengths:
+            output, _ = pad_packed_sequence(output, batch_first=True)
         if self.attn is not None:
             output = self.attn(output, context)
         if self.rnn.bidirectional:
