@@ -1,5 +1,5 @@
 from collections import Counter
-from itertools import chain, takewhile, zip_longest
+from itertools import chain, takewhile, zip_longest, repeat
 import torch
 
 BOS = '<s>'
@@ -18,7 +18,7 @@ def tokenize(filename, lowercase=True):
         for line in f:
             if lowercase:
                 line = line.lower()
-            yield line.strip().split()
+            yield [BOS] + line.strip().split() + [EOS]
 
 
 def batchify(lines, batch_size):
@@ -60,11 +60,10 @@ class Vocab(object):
         return len(self._index2str)
 
     def _string2tensor(self, tokens, padded_length):
-        tok_with_meta = [BOS] + tokens + [EOS]
-        tok_with_meta.extend([PAD] * (padded_length - len(tok_with_meta)))
+        padded_toks = chain(tokens, repeat(PAD, padded_length - len(tokens)))
         return torch.LongTensor(
             [self._str2index.get(tok, self._str2index[UNK])
-             for tok in tok_with_meta]
+             for tok in padded_toks]
         ).unsqueeze(0)
 
     def string2tensor(self, sequences):
@@ -72,7 +71,9 @@ class Vocab(object):
         sequences: a lits of lists of strings
         returns: LongTensor (n_samples x max_len)
         """
-        max_len = max(len(sample) for sample in sequences) + 2  # for BOS/EOS
+        # the pad_sequence function should change this, but it appears not
+        # yet to be in the version of pytorch on conda
+        max_len = max(len(sample) for sample in sequences)
         return torch.cat(
             [self._string2tensor(seq, max_len) for seq in sequences]
         )
@@ -108,8 +109,8 @@ class BitextIterator(object):
             # BOS/EOS things aren't added until the batches are turned
             # into tensors, so it's necessary to add 2 to each length
             # to account for this
-            src_lengths = [2 + len(sample) for sample in sorted_src]
-            tgt_lengths = [2 + len(sample) for sample in sorted_tgt]
+            src_lengths = [len(sample) for sample in sorted_src]
+            tgt_lengths = [len(sample) for sample in sorted_tgt]
 
             src_tensor = self.src_vocab.string2tensor(sorted_src)
             tgt_tensor = self.tgt_vocab.string2tensor(sorted_tgt)
