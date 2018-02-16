@@ -13,50 +13,54 @@ from nnow.Attention import Attention
 
 
 def train_batch(batch, model, optimizer, criterion):
-    """
-    Do stuff, like report the size-averaged loss
-    """
     src = Variable(batch['src'])
     tgt = Variable(batch['tgt'])
+    src_lengths = batch['src_lengths']
+    n_words = sum(batch['tgt_lengths'])
+    batch_size = tgt.size(0)
+
     optimizer.zero_grad()
     gold = tgt[:, 1:].contiguous().view(-1)
 
-    predicted = model(src, tgt, src_lengths=batch.get('src_lengths', None))
+    predicted = model(src, tgt, src_lengths=src_lengths)
     loss = criterion(predicted, gold)
-    loss.backward()
+    loss.div(batch_size).backward()  # divide loss by batch size
     optimizer.step()
-    return loss.data[0]
+    return loss.data[0], n_words
 
 
 def train_epoch(model, optimizer, criterion, batches, report_every):
     model.train()
+    report_loss = 0.0
+    n_words = 0
     for i, batch in enumerate(batches, 1):
         optimizer.zero_grad()
-        loss = train_batch(batch, model, optimizer, criterion)
+        b_loss, b_words = train_batch(batch, model, optimizer, criterion)
+        report_loss += b_loss
+        n_words += b_words
         if i % report_every == 0:
-            # note that this is not correct: it's the loss for only a
-            # single batch
-            print('training ppl {}'.format(math.exp(loss)))
+            print('training ppl {}'.format(math.exp(report_loss / n_words)))
+            report_loss = 0.0
+            n_words = 0
 
 
 def validate_model(model, criterion, batches):
-    """
-    TODO: this is very silly. I need a better way of getting the loss
-    numbers to report.
-    And it isn't great that I'm using batches this way, either
-    However,
-    """
     model.eval()
-    pred = []
-    gold = []
+    loss = 0.0
+    n_words = 0
     for batch in batches:
         src = Variable(batch['src'], volatile=True)
         tgt = Variable(batch['tgt'], volatile=True)
+        n_words += sum(batch['tgt_lengths'])
+        pred = model(src, tgt, batch.get('src_lengths', None))
+        gold = tgt[:, 1:].contiguous().view(-1)
+        loss += criterion(pred, gold)
+    return math.exp(loss / n_words)
 
-        pred.append(model(src, tgt, batch.get('src_lengths', None)))
-        gold.append(tgt[:, 1:].contiguous().view(-1))
-    loss = criterion(torch.cat(pred), torch.cat(gold))
-    return torch.exp(loss)
+
+def initialize_parameters(module, param_init):
+    if hasattr(module, 'weight'):
+        nn.init.uniform(module.weight, -param_init, param_init)
 
 
 def main():
@@ -77,6 +81,9 @@ def main():
     parser.add_argument('-report_ppl', type=int, default=50,
                         help="""Report training perplexity every this many
                         iterations.""")
+    parser.add_argument('-learning_rate', type=float, default=0.1)
+    parser.add_argument('-out_path', default='model.pt')
+    parser.add_argument('-param_init', type=float, default=0.1)
     opt = parser.parse_args()
 
     # make a sequence-to-sequence model:
@@ -109,12 +116,14 @@ def main():
     decoder = Decoder(tgt_emb, dec_rnn, output_layer)
     model = Seq2Seq(encoder, decoder)
 
-    # make the loss function and optimizer
-    criterion = nn.NLLLoss(ignore_index=0)
-    optimizer = optim.SGD(model.parameters(), lr=1, momentum=0.9)
+    model.apply(lambda m: initialize_parameters(m, opt.param_init))
+
+    # make the loss function
+    criterion = nn.NLLLoss(ignore_index=0, size_average=False)
 
     # train and validate
     for i in range(1, opt.epochs + 1):
+        optimizer = optim.SGD(model.parameters(), lr=opt.learning_rate)
         print('Training epoch {}'.format(i))
         train_batches = opt.bitext.batches(
             opt.train_src, opt.train_tgt, opt.batch_size
@@ -126,7 +135,7 @@ def main():
         print(validate_model(model, criterion, valid_batches))
 
     # serialize the model
-    torch.save(model, 'foo.pt')
+    torch.save(model, opt.out_path)
 
 
 if __name__ == '__main__':
