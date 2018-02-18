@@ -41,10 +41,8 @@ class Attention(nn.Module):
         """
         tgt_batch, tgt_len, tgt_hidden = input.size()
         src_batch, src_len, src_hidden = context.size()
-        attn_scores = self.score(context, input)
-        alignment = F.softmax(
-            attn_scores.view(-1, src_len), dim=1
-        ).view(tgt_batch, tgt_len, src_len)
+        attn_scores = self.score(input, context)
+        alignment = F.softmax(attn_scores, dim=2)
         c = torch.bmm(alignment, context)
 
         attn_h_t = self.mlp(torch.cat([c, input], dim=2))
