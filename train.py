@@ -82,7 +82,7 @@ def main():
                         help="""Report training perplexity every this many
                         iterations.""")
     parser.add_argument('-learning_rate', type=float, default=0.1)
-    parser.add_argument('-out_path', default='model.pt')
+    parser.add_argument('-out', default='model.pt')
     parser.add_argument('-param_init', type=float, default=0.1)
     opt = parser.parse_args()
 
@@ -135,7 +135,7 @@ def main():
         print(validate_model(model, criterion, valid_batches))
 
     # serialize the model
-    torch.save(model, opt.out_path)
+    torch.save(model, opt.out)
 
 
 if __name__ == '__main__':
