@@ -106,9 +106,6 @@ class BitextIterator(object):
                                             reverse=True))
             sorted_tgt = tuple(tgt_batch[i] for i in order)
 
-            # BOS/EOS things aren't added until the batches are turned
-            # into tensors, so it's necessary to add 2 to each length
-            # to account for this
             src_lengths = [len(sample) for sample in sorted_src]
             tgt_lengths = [len(sample) for sample in sorted_tgt]
 
