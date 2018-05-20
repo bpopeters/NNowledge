@@ -31,6 +31,18 @@ def batchify(lines, batch_size):
         yield tuple(line for line in raw_batch if line is not None)
 
 
+def bitext_batches(src_batches, tgt_batches, sort=True):
+    for src_batch, tgt_batch in zip(src_batches, tgt_batches):
+        if sort:
+            order, sorted_src = zip(*sorted(enumerate(src_batch),
+                                            key=lambda x: len(x[1]),
+                                            reverse=True))
+            sorted_tgt = tuple(tgt_batch[i] for i in order)
+            yield sorted_src, sorted_tgt
+        else:
+            yield src_batch, tgt_batch
+
+
 class Vocab(object):
     """
     A vocabulary: hand it a tokenized corpus, it will maintain the types
@@ -54,9 +66,7 @@ class Vocab(object):
         assert len(self._index2str) == len(self._str2index)
 
     def __len__(self):
-        """
-        The vocab size
-        """
+        """The vocab size"""
         return len(self._index2str)
 
     def _string2tensor(self, tokens, padded_length):
@@ -66,16 +76,16 @@ class Vocab(object):
              for tok in padded_toks]
         ).unsqueeze(0)
 
-    def string2tensor(self, sequences):
+    def string2tensor(self, batch):
         """
-        sequences: a lits of lists of strings
-        returns: LongTensor (n_samples x max_len)
+        batch: a list of lists of tokens
+        returns: LongTensor (batch size x max_len)
         """
         # the pad_sequence function should change this, but it appears not
         # yet to be in the version of pytorch on conda
-        max_len = max(len(sample) for sample in sequences)
+        max_len = max(len(sample) for sample in batch)
         return torch.cat(
-            [self._string2tensor(seq, max_len) for seq in sequences]
+            [self._string2tensor(sample, max_len) for sample in batch]
         )
 
     def tensor2string(self, tensor):
@@ -100,16 +110,12 @@ class BitextIterator(object):
         tokenized_tgt = tokenize(tgt)
         src_batches = batchify(tokenized_src, batch_size)
         tgt_batches = batchify(tokenized_tgt, batch_size)
-        for src_batch, tgt_batch in zip(src_batches, tgt_batches):
-            order, sorted_src = zip(*sorted(enumerate(src_batch),
-                                            key=lambda x: len(x[1]),
-                                            reverse=True))
-            sorted_tgt = tuple(tgt_batch[i] for i in order)
+        for src_batch, tgt_batch in bitext_batches(src_batches, tgt_batches):
 
-            src_lengths = [len(sample) for sample in sorted_src]
-            tgt_lengths = [len(sample) for sample in sorted_tgt]
+            src_lengths = [len(sample) for sample in src_batch]
+            tgt_lengths = [len(sample) for sample in tgt_batch]
 
-            src_tensor = self.src_vocab.string2tensor(sorted_src)
-            tgt_tensor = self.tgt_vocab.string2tensor(sorted_tgt)
+            src_tensor = self.src_vocab.string2tensor(src_batch)
+            tgt_tensor = self.tgt_vocab.string2tensor(tgt_batch)
             yield {'src': src_tensor, 'src_lengths': src_lengths,
                    'tgt': tgt_tensor, 'tgt_lengths': tgt_lengths}
