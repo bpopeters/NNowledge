@@ -26,7 +26,7 @@ def train_batch(batch, model, optimizer, criterion):
     loss = criterion(predicted, gold)
     loss.div(batch_size).backward()  # divide loss by batch size
     optimizer.step()
-    return loss.data[0], n_words
+    return loss.item(), n_words
 
 
 def train_epoch(model, optimizer, criterion, batches, report_every):
@@ -48,19 +48,15 @@ def validate_model(model, criterion, batches):
     model.eval()
     loss = 0.0
     n_words = 0
-    for batch in batches:
-        src = Variable(batch['src'], volatile=True)
-        tgt = Variable(batch['tgt'], volatile=True)
-        n_words += sum(batch['tgt_lengths'])
-        pred = model(src, tgt, batch.get('src_lengths', None))
-        gold = tgt[:, 1:].contiguous().view(-1)
-        loss += criterion(pred, gold)
+    with torch.no_grad():
+        for batch in batches:
+            src = batch['src']
+            tgt = batch['tgt']
+            n_words += sum(batch['tgt_lengths'])
+            pred = model(src, tgt, batch.get('src_lengths', None))
+            gold = tgt[:, 1:].contiguous().view(-1)
+            loss += criterion(pred, gold)
     return math.exp(loss / n_words)
-
-
-def initialize_parameters(module, param_init):
-    if hasattr(module, 'weight'):
-        nn.init.uniform(module.weight, -param_init, param_init)
 
 
 def main():
@@ -78,6 +74,10 @@ def main():
     parser.add_argument('-dropout', type=float, default=0.3)
     parser.add_argument('-epochs', type=int, default=10)
     parser.add_argument('-rnn_type', default='LSTM', choices=['LSTM', 'GRU'])
+    parser.add_argument('-attn_type', default='general',
+                        choices=['general', 'dot'])
+    parser.add_argument('-attn_func', default='softmax',
+                        choices=['softmax', 'sparsemax'])
     parser.add_argument('-report_ppl', type=int, default=50,
                         help="""Report training perplexity every this many
                         iterations.""")
@@ -100,7 +100,9 @@ def main():
         batch_first=True, dropout=opt.dropout
     )
 
-    attn = Attention(opt.hidden_size)
+    attn = Attention(
+        opt.hidden_size, attn_type=opt.attn_type, attn_func=opt.attn_func
+    )
 
     dec_rnn = RNN(
         opt.rnn_type, bidirectional=False, num_layers=opt.layers,
@@ -115,8 +117,6 @@ def main():
     encoder = Encoder(src_emb, enc_rnn)
     decoder = Decoder(tgt_emb, dec_rnn, output_layer)
     model = Seq2Seq(encoder, decoder)
-
-    model.apply(lambda m: initialize_parameters(m, opt.param_init))
 
     # make the loss function
     criterion = nn.NLLLoss(ignore_index=0, size_average=False)

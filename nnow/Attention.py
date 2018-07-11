@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from nnow.activations import sparsemax
 
 
 class GlobalAttnScore(nn.Module):
@@ -24,10 +25,11 @@ class GlobalAttnScore(nn.Module):
 
 class Attention(nn.Module):
 
-    def __init__(self, hidden_size, attn_type='general'):
+    def __init__(self, hidden_size, attn_type='general', attn_func='softmax'):
         assert attn_type in ['general', 'dot']
+        assert attn_func in ['softmax', 'sparsemax']
+        self.attn_func = attn_func
         super(Attention, self).__init__()
-        # not the final interface
         self.score = GlobalAttnScore(hidden_size, attn_type)
         self.mlp = nn.Sequential(
             nn.Linear(hidden_size * 2, hidden_size),
@@ -42,8 +44,10 @@ class Attention(nn.Module):
         tgt_batch, tgt_len, tgt_hidden = input.size()
         src_batch, src_len, src_hidden = context.size()
         attn_scores = self.score(input, context)
-        alignment = F.softmax(attn_scores, dim=2)
+        if self.attn_func == 'softmax':
+            alignment = F.softmax(attn_scores, 2)
+        else:
+            alignment = sparsemax(attn_scores, 2)
         c = torch.bmm(alignment, context)
-
         attn_h_t = self.mlp(torch.cat([c, input], dim=2))
         return attn_h_t
