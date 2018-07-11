@@ -1,11 +1,19 @@
 from collections import Counter
-from itertools import chain, takewhile, zip_longest, repeat
+from itertools import count, chain, takewhile
+import pandas as pd
 import torch
+from torch.nn.utils.rnn import pad_sequence
 
 BOS = '<s>'
 EOS = '</s>'
 UNK = '<unk>'
 PAD = '<blank>'
+
+
+def tokenize_line(line, lowercase=True):
+    if lowercase:
+        line = line.lower()
+    return [BOS] + line.strip().split() + [EOS]
 
 
 def tokenize(filename, lowercase=True):
@@ -15,32 +23,22 @@ def tokenize(filename, lowercase=True):
              same length. Each element of the sequence
     """
     with open(filename) as f:
-        for line in f:
-            if lowercase:
-                line = line.lower()
-            yield [BOS] + line.strip().split() + [EOS]
+        return [tokenize_line(line, lowercase) for line in f]
 
 
-def batchify(lines, batch_size):
-    """
-    cf. https://docs.python.org/3/library/itertools.html#itertools-recipes
-    lines is an iterable, such as the src.test lines
-    """
-    args = [iter(lines)] * batch_size
-    for raw_batch in zip_longest(*args):
-        yield tuple(line for line in raw_batch if line is not None)
-
-
-def bitext_batches(src_batches, tgt_batches, sort=True):
-    for src_batch, tgt_batch in zip(src_batches, tgt_batches):
-        if sort:
-            order, sorted_src = zip(*sorted(enumerate(src_batch),
-                                            key=lambda x: len(x[1]),
-                                            reverse=True))
-            sorted_tgt = tuple(tgt_batch[i] for i in order)
-            yield sorted_src, sorted_tgt
-        else:
-            yield src_batch, tgt_batch
+def unsorted_pad_sequence(tensors, batch_first=False):
+    sorted_order, sorted_tensors = zip(
+        *sorted(enumerate(tensors), key=lambda x: len(x[1]), reverse=True)
+    )
+    original_order = torch.LongTensor(
+        [i for i, j in sorted(enumerate(sorted_order), key=lambda x: x[1])]
+    )
+    padded_tensors = pad_sequence(
+        sorted_tensors, batch_first=True
+    ).index_select(0, original_order)
+    if not batch_first:
+        padded_tensors.transpose_()
+    return padded_tensors
 
 
 class Vocab(object):
@@ -69,24 +67,24 @@ class Vocab(object):
         """The vocab size"""
         return len(self._index2str)
 
-    def _string2tensor(self, tokens, padded_length):
-        padded_toks = chain(tokens, repeat(PAD, padded_length - len(tokens)))
-        return torch.LongTensor(
-            [self._str2index.get(tok, self._str2index[UNK])
-             for tok in padded_toks]
-        ).unsqueeze(0)
-
-    def string2tensor(self, batch):
+    def line2tensor(self, tokens):
         """
-        batch: a list of lists of tokens
+        convert tokenized string into 1d LongTensor of indices
+        """
+        indices = [self._str2index.get(tok, self._str2index[UNK])
+                   for tok in tokens]
+        return torch.LongTensor(indices)
+
+    def batch2tensor(self, batch, sorted_by_length=True):
+        """
+        batch: a Series of token sequences
         returns: LongTensor (batch size x max_len)
         """
-        # the pad_sequence function should change this, but it appears not
-        # yet to be in the version of pytorch on conda
-        max_len = max(len(sample) for sample in batch)
-        return torch.cat(
-            [self._string2tensor(sample, max_len) for sample in batch]
-        )
+        tensors = [self.line2tensor(b) for b in batch]
+        if sorted_by_length:
+            return pad_sequence(tensors, batch_first=True)
+        else:
+            return unsorted_pad_sequence(tensors, batch_first=True)
 
     def tensor2string(self, tensor):
         return [list(
@@ -96,26 +94,30 @@ class Vocab(object):
                 for line in tensor.split(1)]
 
 
-class BitextIterator(object):
-    def __init__(self, src_vocab, tgt_vocab):
-        self.src_vocab = src_vocab
-        self.tgt_vocab = tgt_vocab
+class BitextDataset(object):
+    def __init__(self, src_seqs, tgt_seqs, src_vocab=None, tgt_vocab=None):
+        src = pd.Series(src_seqs)
+        tgt = pd.Series(tgt_seqs)
+        assert src.size == tgt.size, "Source and target files are mismatched"
+        self.src_vocab = Vocab(src) if src_vocab is None else src_vocab
+        self.tgt_vocab = Vocab(tgt) if tgt_vocab is None else tgt_vocab
+        self.data = pd.DataFrame({'src': src, 'tgt': tgt})
+        self.data['src_length'] = self.data['src'].apply(len)
 
-    def batches(self, src, tgt, batch_size):
-        """
-        src, tgt: paths to source and target files
-        yields:
-        """
-        tokenized_src = tokenize(src)
-        tokenized_tgt = tokenize(tgt)
-        src_batches = batchify(tokenized_src, batch_size)
-        tgt_batches = batchify(tokenized_tgt, batch_size)
-        for src_batch, tgt_batch in bitext_batches(src_batches, tgt_batches):
+    def shuffle(self):
+        self.data = self.data.sample(frac=1)
 
-            src_lengths = [len(sample) for sample in src_batch]
-            tgt_lengths = [len(sample) for sample in tgt_batch]
+    def make_batch_tensors(self, batch):
+        sorted_batch = batch.sort_values('src_length', 0, ascending=False)
 
-            src_tensor = self.src_vocab.string2tensor(src_batch)
-            tgt_tensor = self.tgt_vocab.string2tensor(tgt_batch)
-            yield {'src': src_tensor, 'src_lengths': src_lengths,
-                   'tgt': tgt_tensor, 'tgt_lengths': tgt_lengths}
+        src_tensor = self.src_vocab.batch2tensor(sorted_batch['src'])
+        tgt_tensor = self.tgt_vocab.batch2tensor(sorted_batch['tgt'], False)
+        return src_tensor, tgt_tensor
+
+    def batches(self, batch_size):
+        sample_count = count()
+
+        def batch_grouper(row):
+            return next(sample_count) // batch_size
+        for name, group in self.data.groupby(batch_grouper):
+            yield self.make_batch_tensors(group)
