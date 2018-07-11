@@ -102,17 +102,20 @@ class BitextDataset(object):
         self.src_vocab = Vocab(src) if src_vocab is None else src_vocab
         self.tgt_vocab = Vocab(tgt) if tgt_vocab is None else tgt_vocab
         self.data = pd.DataFrame({'src': src, 'tgt': tgt})
-        self.data['src_length'] = self.data['src'].apply(len)
+        self.data['src_lengths'] = self.data['src'].apply(len)
+        self.data['tgt_lengths'] = self.data['tgt'].apply(len)
 
     def shuffle(self):
         self.data = self.data.sample(frac=1)
 
-    def make_batch_tensors(self, batch):
-        sorted_batch = batch.sort_values('src_length', 0, ascending=False)
+    def make_batch(self, batch):
+        batch = batch.sort_values('src_lengths', 0, ascending=False)
 
-        src_tensor = self.src_vocab.batch2tensor(sorted_batch['src'])
-        tgt_tensor = self.tgt_vocab.batch2tensor(sorted_batch['tgt'], False)
-        return src_tensor, tgt_tensor
+        src_tensor = self.src_vocab.batch2tensor(batch['src'])
+        tgt_tensor = self.tgt_vocab.batch2tensor(batch['tgt'], False)
+        return {'src': src_tensor, 'tgt': tgt_tensor,
+                'src_lengths': list(batch['src_lengths']),
+                'tgt_lengths': list(batch['tgt_lengths'])}
 
     def batches(self, batch_size):
         sample_count = count()
@@ -120,4 +123,4 @@ class BitextDataset(object):
         def batch_grouper(row):
             return next(sample_count) // batch_size
         for name, group in self.data.groupby(batch_grouper):
-            yield self.make_batch_tensors(group)
+            yield self.make_batch(group)
