@@ -4,7 +4,6 @@ import argparse
 import math
 import torch
 import torch.optim as optim
-from torch.autograd import Variable
 import torch.nn as nn
 from nnow.Model import Encoder, Decoder, Seq2Seq
 from nnow.OutputLayer import LogSoftmaxOutput
@@ -13,8 +12,8 @@ from nnow.Attention import Attention
 
 
 def train_batch(batch, model, optimizer, criterion):
-    src = Variable(batch['src'])
-    tgt = Variable(batch['tgt'])
+    src = batch['src']
+    tgt = batch['tgt']
     src_lengths = batch['src_lengths']
     n_words = sum(batch['tgt_lengths'])
     batch_size = tgt.size(0)
@@ -24,7 +23,7 @@ def train_batch(batch, model, optimizer, criterion):
 
     predicted = model(src, tgt, src_lengths=src_lengths)
     loss = criterion(predicted, gold)
-    loss.div(batch_size).backward()  # divide loss by batch size
+    loss.div(batch_size).backward()
     optimizer.step()
     return loss.item(), n_words
 
@@ -65,7 +64,7 @@ def main():
     parser.add_argument('train_tgt')
     parser.add_argument('valid_src')
     parser.add_argument('valid_tgt')
-    parser.add_argument('bitext', type=torch.load)
+    parser.add_argument('datasets', type=torch.load)
     parser.add_argument('-batch_size', type=int, default=64)
     parser.add_argument('-brnn', action='store_true')
     parser.add_argument('-word_vec_size', type=int, default=150)
@@ -88,10 +87,10 @@ def main():
 
     # make a sequence-to-sequence model:
     src_emb = nn.Embedding(
-        len(opt.bitext.src_vocab), opt.word_vec_size, padding_idx=0
+        len(opt.datasets['train'].src_vocab), opt.word_vec_size, padding_idx=0
     )
     tgt_emb = nn.Embedding(
-        len(opt.bitext.tgt_vocab), opt.word_vec_size, padding_idx=0
+        len(opt.datasets['train'].tgt_vocab), opt.word_vec_size, padding_idx=0
     )
 
     enc_rnn = RNN(
@@ -111,7 +110,7 @@ def main():
     )
 
     output_layer = LogSoftmaxOutput(
-        dec_rnn.hidden_size, len(opt.bitext.tgt_vocab)
+        dec_rnn.hidden_size, len(opt.datasets['train'].tgt_vocab)
     )
 
     encoder = Encoder(src_emb, enc_rnn)
@@ -122,15 +121,14 @@ def main():
     criterion = nn.NLLLoss(ignore_index=0, size_average=False)
 
     # train and validate
+    train_data = opt.datasets['train']
+    valid_data = opt.datasets['valid']
     for i in range(1, opt.epochs + 1):
         optimizer = optim.SGD(model.parameters(), lr=opt.learning_rate)
         print('Training epoch {}'.format(i))
-        train_batches = opt.bitext.batches(
-            opt.train_src, opt.train_tgt, opt.batch_size
-        )
-        valid_batches = opt.bitext.batches(
-            opt.valid_src, opt.valid_tgt, opt.batch_size
-        )
+        train_batches = train_data.batches(opt.batch_size)
+        valid_batches = valid_data.batches(opt.batch_size)  # no need for batch
+
         train_epoch(model, optimizer, criterion, train_batches, opt.report_ppl)
         print(validate_model(model, criterion, valid_batches))
 
