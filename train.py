@@ -6,7 +6,6 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 from nnow.Model import Encoder, Decoder, Seq2Seq
-from nnow.OutputLayer import LogSoftmaxOutput
 from nnow.RNN import RNN
 from nnow.Attention import Attention
 
@@ -109,7 +108,7 @@ def main():
         batch_first=True, dropout=opt.dropout, attn=attn
     )
 
-    output_layer = LogSoftmaxOutput(
+    output_layer = nn.Linear(
         dec_rnn.hidden_size, len(opt.datasets['train'].tgt_vocab)
     )
 
@@ -118,7 +117,7 @@ def main():
     model = Seq2Seq(encoder, decoder)
 
     # make the loss function
-    criterion = nn.NLLLoss(ignore_index=0, size_average=False)
+    criterion = nn.CrossEntropyLoss(ignore_index=0, size_average=False)
 
     # train and validate
     train_data = opt.datasets['train']
